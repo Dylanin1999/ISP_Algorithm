@@ -15,7 +15,7 @@ void PrintResult(unsigned char* out, int Height, int Width)
 	}
 }
 
-
+//积分图的主要代码
 void Intergal(unsigned char* Inputdata, int Height, int Width)
 {
 	unsigned char* Outputdata = (unsigned char*)malloc((Height + 1)*(Width + 1) * sizeof(unsigned char));
@@ -38,7 +38,7 @@ void Intergal(unsigned char* Inputdata, int Height, int Width)
 	 return ;
 }
 
-
+//简单地检测例子
 int main()
 {
 	uchar mat[3][3] = { {1,2,3},{4,5,6},{7,8,9} };

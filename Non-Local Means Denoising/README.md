@@ -1,1 +1,1 @@
-1、NL-Means.cpp: 没有进行优化的NLM算法，时间复杂度高，速度慢。
+1、NL-Means.cpp: 没有进行优化的NLM算法，时间复杂度高，速度慢。对Non-local Means算法的原始想法进行了最基础还原，想要学习和了解Non-local Means算法的,可以直接查看该文件。
