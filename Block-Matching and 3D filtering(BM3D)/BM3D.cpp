@@ -2,7 +2,7 @@
 #include <iostream>
 #include "IntegralImg.h"
 
-void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds)
+void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds, int stride)
 {
 	cv::Mat dst = grayImg.clone();
 
@@ -11,6 +11,8 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds)
 	std::cout << "rows: " << Height << ", cols: " << Width << std::endl;
 	float h = 5;
 
+	int blockNum = int((Ds - ds) / (stride + 1));//水平方向的block个数，一共有blockNum平方个block，选取这个前面的几个
+	double Hardthreshold = 0;
 
 
 	double kernelValue = 1 / ((2 * ds + 1) * (2 * ds + 1));
@@ -30,7 +32,7 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds)
 		}
 	}
 
-
+	std::vector<double> disVector;
 
 	for (int row = Ds; row < Height - Ds; row++)
 	{
@@ -39,9 +41,9 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds)
 			//确定block的中心
 			float max = 0;
 			float sum = 0;
-			for (int SearchWindowsX = -Ds + ds; SearchWindowsX < Ds - ds; SearchWindowsX++)
+			for (int SearchWindowsX = -Ds + ds; SearchWindowsX < Ds - ds; SearchWindowsX+=stride)
 			{
-				for (int SearchWindowsY = -Ds + ds; SearchWindowsY < Ds - ds; SearchWindowsY++)
+				for (int SearchWindowsY = -Ds + ds; SearchWindowsY < Ds - ds; SearchWindowsY+=stride)
 				{
 					float distance = 0;
 					//block中心
@@ -61,16 +63,7 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds)
 					//std::cout << "distance: " << distance << std::endl;
 					//std::cout << "kernelValue: " << kernelValue << std::endl;
 
-					Weight[SearchWindowsX + Ds - ds][SearchWindowsY + Ds - ds] = pow(2.718, (-distance / (h * h)));
-					//std::cout << "Weight: " << Weight[SearchWindowsX + Ds - ds][SearchWindowsY + Ds - ds] << std::endl;
-
-					if (Weight[SearchWindowsX + Ds - ds][SearchWindowsY + Ds - ds] > max)
-					{
-						max = Weight[SearchWindowsX + Ds - ds][SearchWindowsY + Ds - ds];
-					}
-
-					sum += Weight[SearchWindowsX + Ds - ds][SearchWindowsY + Ds - ds];
-					//std::cout << "sum: " << sum << std::endl;
+					disVector.push_back(distance);
 
 				}
 			}
