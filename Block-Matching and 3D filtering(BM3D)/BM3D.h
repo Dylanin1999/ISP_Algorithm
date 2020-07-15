@@ -67,6 +67,7 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds, int stride)
 					disVector.push_back(distance);
 					std::cout << "disVector size:" << disVector.size() << std::endl;
 					std::sort(disVector.begin(), disVector.end());
+					std::cout << "distance: " << std::endl;
 					/*for (auto elem : disVector)
 					{
 						std::cout << elem << ", ";
