@@ -33,12 +33,12 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds, int stride)
 		}
 	}
 
-	std::vector<double> disVector;
 
 	for (int row = Ds; row < Height - Ds; row++)
 	{
 		for (int col = Ds; col < Width - Ds; col++)
 		{
+			std::vector<double> disVector;
 			//确定block的中心
 			float max = 0;
 			float sum = 0;
@@ -63,19 +63,20 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds, int stride)
 					distance = kernelValue * pow((blockValue - slipValue), 2);
 					//std::cout << "distance: " << distance << std::endl;
 					//std::cout << "kernelValue: " << kernelValue << std::endl;
-
+					//计算出的一个block中的近似块的distance
+					//根据超参数选择前面的近似块组合成三维数组
 					disVector.push_back(distance);
-					std::cout << "disVector size:" << disVector.size() << std::endl;
 					std::sort(disVector.begin(), disVector.end());
-					std::cout << "distance: " << std::endl;
-					/*for (auto elem : disVector)
-					{
-						std::cout << elem << ", ";
-					}
-					std::cout << std::endl;*/
+					//std::cout << "distance: " << std::endl;
+					
 				}
 			}
-			disVector.clear();
+			for (auto elem : disVector)
+			{
+				std::cout << elem << ", ";
+			}
+			std::cout << std::endl;
+			//std::cout << "disVector size:" << disVector.size() << std::endl;
 			//Weight[Ds - ds + 1][Ds - ds + 1] = max;
 			////std::cout << "sum: " << sum << std::endl;
 			////std::cout << "Weight: " << Weight[Ds - ds + 1][Ds - ds + 1] << std::endl;
