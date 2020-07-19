@@ -1,22 +1,26 @@
 #include <opencv.hpp>
 #include <iostream>
+#include <map>
+
 #include "IntegralImg.h"
 
 void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds, int stride)
-{
+{	
+	float GroupNum = 10;
 	cv::Mat dst = grayImg.clone();
-
+	
 	int Height = grayImg.rows;
 	int Width = grayImg.cols;
 	std::cout << "rows: " << Height << ", cols: " << Width << std::endl;
 	float h = 5;
 
-	int blockNum = pow(int((Ds - ds) / stride)+1,2);//水平方向的block个数，一共有blockNum平方个block，选取这个前面的几个
+	int blockNum = pow((Ds - ds)*2,2);//水平方向的block个数，一共有blockNum平方个block，选取这个前面的几个
 	std::cout << "Block Num:　" << blockNum << std::endl;
 	double Hardthreshold = 0;
 
 
-	double kernelValue = 1 / ((2 * ds + 1) * (2 * ds + 1));
+	double kernelValue = 1.0 / ((2 * ds + 1) * (2 * ds + 1));
+	std::cout << "ds: " << ds << std::endl;
 	std::cout << "kernelValue: " << kernelValue << std::endl;
 
 	std::vector<std::vector<float> > Weight;
@@ -38,7 +42,9 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds, int stride)
 	{
 		for (int col = Ds; col < Width - Ds; col++)
 		{
-			std::vector<double> disVector;
+			std::multimap<double, int> disMap;
+			std::vector<cv::Mat> GroupingRoi;
+			int counter = 0;
 			//确定block的中心
 			float max = 0;
 			float sum = 0;
@@ -47,10 +53,11 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds, int stride)
 				for (int SearchWindowsY = -Ds + ds; SearchWindowsY < Ds - ds; SearchWindowsY += stride)
 				{
 					float distance = 0;
-					//block中心
+					//slip的中心
 					int blockCenterX = row + SearchWindowsX;
 					int blockCenterY = col + SearchWindowsY;
 
+					//固定参考块的左上角和右下角
 					int blockLUPouintX = row - ds;
 					int blockLUPouintY = col - ds;
 					int blockRDPouintX = row + ds;
@@ -61,21 +68,27 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds, int stride)
 
 
 					distance = kernelValue * pow((blockValue - slipValue), 2);
-					//std::cout << "distance: " << distance << std::endl;
-					//std::cout << "kernelValue: " << kernelValue << std::endl;
 					//计算出的一个block中的近似块的distance
 					//根据超参数选择前面的近似块组合成三维数组
-					disVector.push_back(distance);
-					std::sort(disVector.begin(), disVector.end());
-					//std::cout << "distance: " << std::endl;
-					
+					disMap.insert(std::pair<double, int>(distance, counter));
+					counter++;
 				}
 			}
-			for (auto elem : disVector)
+			int t = 0;
+			for (auto elem : disMap)
 			{
-				std::cout << elem << ", ";
+				int Block_num = elem.second;
+				int len_y = Block_num / 8;
+				int len_x = Block_num % 8;
+				int CenterX = row - Ds + ds;
+				int CenterY = col - Ds + ds;
+				int shiftX = CenterX + len_x * stride;
+				int shiftY = CenterY + len_y * stride;
+				cv::Mat ROI = grayImg(cv::Rect(shiftX - ds, shiftY - ds, 2 * ds + 1, 2 * ds + 1));
+				cv::Mat ROIDct;
+				cv::dct(ROI, ROIDct);
+				GroupingRoi.push_back(ROIDct);
 			}
-			std::cout << std::endl;
 			//std::cout << "disVector size:" << disVector.size() << std::endl;
 			//Weight[Ds - ds + 1][Ds - ds + 1] = max;
 			////std::cout << "sum: " << sum << std::endl;
