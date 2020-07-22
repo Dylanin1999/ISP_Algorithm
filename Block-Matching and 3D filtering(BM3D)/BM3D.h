@@ -75,6 +75,7 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds, int stride)
 				}
 			}
 			int t = 0;
+			//Ç°N¸öÏàËÆ¿é
 			for (auto elem : disMap)
 			{
 				int Block_num = elem.second;
@@ -88,6 +89,19 @@ void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds, int stride)
 				cv::Mat ROIDct;
 				cv::dct(ROI, ROIDct);
 				GroupingRoi.push_back(ROIDct);
+			}
+			cv::Mat temp(1,GroupingRoi.size(),CV_16FC1);
+			for (int row = 0; row < 2 * ds + 1; row++)
+			{
+				for (int col = 0; col < 2 * ds + 1; col++)
+				{
+					for (int channel = 0; channel < GroupingRoi.size(); channel++)
+					{
+						temp.at<float>(1, channel) = GroupingRoi[channel].at<float>(row, col);
+					}
+					cv::dct(temp, temp);
+
+				}
 			}
 			//std::cout << "disVector size:" << disVector.size() << std::endl;
 			//Weight[Ds - ds + 1][Ds - ds + 1] = max;
