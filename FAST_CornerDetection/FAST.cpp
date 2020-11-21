@@ -23,7 +23,7 @@ int main()
 	int width = gray.cols;
 
 	int radius = 3;
-	int threshold = 100;
+	int threshold = 50;
 	for (int i = radius; i < height - radius; i++)
 	{
 		uchar* topRow = gray.ptr<uchar>(i - radius);
@@ -32,6 +32,7 @@ int main()
 		int pixCounter = 0;
 		for (int j = radius; j < width - radius; j++)
 		{
+			pixCounter = 0;
 			uchar center = midCol[j];
 			int counter = 0;
 			counter += topRow[j] - center > threshold ? 0 : 1;
