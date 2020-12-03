@@ -50,27 +50,42 @@ std::vector<std::vector<cv::Mat>> BuildDOG(std::vector<std::vector<cv::Mat>> &Py
 			Tmp.push_back(tmp);
 		}
 		DOG.push_back(Tmp);
+		Tmp.clear();
+	}
+	for (int i = 0; i<DOG.size(); i++)
+	{
+		std::cout << "DDDD: " << DOG[i].size() << std::endl;
 	}
 	return DOG;
 }
 
 
-std::vector<cv::Point2i> GetFeaturePoint(std::vector<std::vector<cv::Mat>> Pyr)
+std::vector<std::vector<std::vector<cv::Point2i>>> GetFeaturePoint(std::vector<std::vector<cv::Mat>>& Pyr)
 {
 	int arr[8][2] = { { -1, -1 }, { -1, 0 }, { -1, 1 },
 	{ 0, -1 }, { 0, 1 },
 	{ 1, -1 }, { 1, 0 }, { 1, 1 } };
-	std::vector<cv::Point2i> FeaturePoint;
+	std::vector<std::vector<std::vector<cv::Point2i>>> FeaturePoint;
+	std::vector<cv::Point2i> tmp;
+	std::vector<std::vector<cv::Point2i>> crewPic;
 
 	int kernelSize = 3;
+	std::cout << "i: " << Pyr.size() << std::endl;
+	std::cout << "j: " << Pyr[0].size() << std::endl;
 	for (int i = 0; i < Pyr.size(); i++)
 	{
-		for (int j = 1; j < Pyr[i].size; j++)
+		for (int j = 1; j < Pyr[i].size()-1; j++)
 		{
-			for (int row = kernelSize / 2; row < Pyr[i][j].rows - kernelSize / 2; row++)
+			std::cout << "j: " << Pyr[i].size() << std::endl;
+
+			std::cout << "row: " << Pyr[i][j].rows << std::endl;
+			std::cout << "cols: " << Pyr[i][j].cols << std::endl;
+			for (int row = kernelSize / 2; row < Pyr[i][j].rows - kernelSize / 2-1; row++)
 			{
-				for (int col = kernelSize / 2; col < Pyr[i][j].cols - kernelSize / 2; col++)
+				
+				for (int col = kernelSize / 2; col < Pyr[i][j].cols - kernelSize / 2-1; col++)
 				{
+
 					int maxCounter = 0;
 					int minCounter = 0;
 					for (int k = 0; k < 8; k++)
@@ -78,13 +93,19 @@ std::vector<cv::Point2i> GetFeaturePoint(std::vector<std::vector<cv::Mat>> Pyr)
 						Pyr[i][j].ptr<uchar>(row)[col] > Pyr[i][j-1].ptr<uchar>(row + arr[k][0])[col + arr[k][1]] ? maxCounter++ : minCounter++;
 						Pyr[i][j].ptr<uchar>(row)[col] > Pyr[i][j].ptr<uchar>(row + arr[k][0])[col + arr[k][1]] ? maxCounter++ : minCounter++;
 						Pyr[i][j].ptr<uchar>(row)[col] > Pyr[i][j+1].ptr<uchar>(row + arr[k][0])[col + arr[k][1]] ? maxCounter++ : minCounter++;
-						if (!(maxCounter&&minCounter))
-							continue;
+						if (maxCounter&&minCounter)
+							break;
 					}
-					FeaturePoint.push_back(cv::Point2i(i, j));
+					if (maxCounter&&minCounter)
+						continue;
 				}
+				tmp.push_back(cv::Point2i(i, j));
 			}
+			crewPic.push_back(tmp);
+			tmp.clear();
 		}
+		FeaturePoint.push_back(crewPic);
+		crewPic.clear();
 	}
 	return FeaturePoint;
 }
@@ -94,10 +115,17 @@ int main()
 	cv::Mat src = cv::imread("timg.jpg");
 	std::vector<std::vector<cv::Mat>> Pyr = BuildGaussian(src, 5);
 	std::vector<std::vector<cv::Mat>> Res = BuildDOG(Pyr);
-	cv::imshow("-1", src);
-	cv::imshow("0", Res[0][2]);
-	cv::imshow("1", Res[1][2]);
-	cv::imshow("2", Res[2][2]);
+	std::vector<std::vector<std::vector<cv::Point2i>>> Feature = GetFeaturePoint(Res);
+	
+	for (int i = 0; i < Feature.size(); i++)
+	{
+		for (int j = 0; j < Feature[i].size(); j++)
+		{
+			std::cout << "picRow: " << Res[i][j].rows << ",picCol: " << Res[i][j].cols << std::endl;
+			std::cout << "sizeA: " << Feature.size() << ", sizeB: " << Feature[i].size() << ", sizeC: " << Feature[i][j].size() << std::endl;
+		}
+	}
+	system("pause");
 	cv::waitKey(0);
 	return 0;
 }
