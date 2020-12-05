@@ -52,10 +52,6 @@ std::vector<std::vector<cv::Mat>> BuildDOG(std::vector<std::vector<cv::Mat>> &Py
 		DOG.push_back(Tmp);
 		Tmp.clear();
 	}
-	for (int i = 0; i<DOG.size(); i++)
-	{
-		std::cout << "DDDD: " << DOG[i].size() << std::endl;
-	}
 	return DOG;
 }
 
@@ -70,16 +66,11 @@ std::vector<std::vector<std::vector<cv::Point2i>>> GetFeaturePoint(std::vector<s
 	std::vector<std::vector<cv::Point2i>> crewPic;
 
 	int kernelSize = 3;
-	std::cout << "i: " << Pyr.size() << std::endl;
-	std::cout << "j: " << Pyr[0].size() << std::endl;
+
 	for (int i = 0; i < Pyr.size(); i++)
 	{
 		for (int j = 1; j < Pyr[i].size()-1; j++)
 		{
-			std::cout << "j: " << Pyr[i].size() << std::endl;
-
-			std::cout << "row: " << Pyr[i][j].rows << std::endl;
-			std::cout << "cols: " << Pyr[i][j].cols << std::endl;
 			for (int row = kernelSize / 2; row < Pyr[i][j].rows - kernelSize / 2-1; row++)
 			{
 				
@@ -110,6 +101,11 @@ std::vector<std::vector<std::vector<cv::Point2i>>> GetFeaturePoint(std::vector<s
 	return FeaturePoint;
 }
 
+void HessianMatrix()
+{
+
+}
+
 int main()
 {
 	cv::Mat src = cv::imread("timg.jpg");
@@ -117,14 +113,14 @@ int main()
 	std::vector<std::vector<cv::Mat>> Res = BuildDOG(Pyr);
 	std::vector<std::vector<std::vector<cv::Point2i>>> Feature = GetFeaturePoint(Res);
 	
-	for (int i = 0; i < Feature.size(); i++)
+	/*for (int i = 0; i < Feature.size(); i++)
 	{
 		for (int j = 0; j < Feature[i].size(); j++)
 		{
 			std::cout << "picRow: " << Res[i][j].rows << ",picCol: " << Res[i][j].cols << std::endl;
 			std::cout << "sizeA: " << Feature.size() << ", sizeB: " << Feature[i].size() << ", sizeC: " << Feature[i][j].size() << std::endl;
 		}
-	}
+	}*/
 	system("pause");
 	cv::waitKey(0);
 	return 0;
