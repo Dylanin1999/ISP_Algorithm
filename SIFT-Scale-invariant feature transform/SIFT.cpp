@@ -124,6 +124,24 @@ void FirstDifference(std::vector<KeyPoint> FeatureKeyPoint, std::vector<std::vec
 		float dx = Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row](col + 1) - Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row](col - 1)*0.5f;
 		float dy = Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row + 1](col) - Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row - 1](col)*0.5f;
 		float ds = Pyr[DOGLayer][OctaveLayer-1].ptr<uchar>[row](col) - Pyr[DOGLayer][OctaveLayer+1].ptr<uchar>[row](col - 1);
+
+		//¼ÆËã¶þ½×²î·Ö
+		float PixValue2 = 2.0f*Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row](col);
+		float dxx = Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row](col + 1) + Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row](col - 1) - PixValue2;
+		float dyy = Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row + 1](col) + Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row - 1](col) - PixValue2;
+		float dss = Pyr[DOGLayer][OctaveLayer + 1].ptr<uchar>[row](col) + Pyr[DOGLayer][OctaveLayer - 1].ptr<uchar>[row](col) - PixValue2;
+
+		float dxy = (Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row + 1](col + 1) - Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row + 1](col - 1) -
+			Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row - 1](col + 1) + Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row - 1](col - 1))*0.25f;
+
+		float dxs = (Pyr[DOGLayer][OctaveLayer+1].ptr<uchar>[row ](col + 1) - Pyr[DOGLayer][OctaveLayer+1].ptr<uchar>[row](col - 1) -
+			Pyr[DOGLayer][OctaveLayer-1].ptr<uchar>[row](col + 1) + Pyr[DOGLayer][OctaveLayer-1].ptr<uchar>[row](col - 1))*0.25f;
+
+		float dys = (Pyr[DOGLayer][OctaveLayer + 1].ptr<uchar>[row+1](col) - Pyr[DOGLayer][OctaveLayer + 1].ptr<uchar>[row-1](col) -
+			Pyr[DOGLayer][OctaveLayer - 1].ptr<uchar>[row+1](col) + Pyr[DOGLayer][OctaveLayer - 1].ptr<uchar>[row-1](col))*0.25f;
+
+
+		float H[3][3] = { { dxx, dxy, dxs }, { dxy, dyy, dys }, { dxs, dys, dss } };
 	}
 }
 
