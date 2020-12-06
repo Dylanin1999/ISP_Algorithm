@@ -1,6 +1,15 @@
 #include <iostream>
 #include <opencv.hpp>
 
+struct KeyPoint
+{
+	int DOGLayer;
+	int OctaveLayer;
+	int row;
+	int col;
+};
+
+
 std::vector<std::vector<cv::Mat>> BuildGaussian(cv::Mat src, int K)
 {
 	//进行高斯滤波操作
@@ -56,12 +65,12 @@ std::vector<std::vector<cv::Mat>> BuildDOG(std::vector<std::vector<cv::Mat>> &Py
 }
 
 
-std::vector<std::vector<std::vector<cv::Point2i>>> GetFeaturePoint(std::vector<std::vector<cv::Mat>>& Pyr)
+std::vector<KeyPoint> GetFeaturePoint(std::vector<std::vector<cv::Mat>>& Pyr)
 {
 	int arr[8][2] = { { -1, -1 }, { -1, 0 }, { -1, 1 },
 	{ 0, -1 }, { 0, 1 },
 	{ 1, -1 }, { 1, 0 }, { 1, 1 } };
-	std::vector<std::vector<std::vector<cv::Point2i>>> FeaturePoint;
+	std::vector<KeyPoint> FeaturePointVector;
 	std::vector<cv::Point2i> tmp;
 	std::vector<std::vector<cv::Point2i>> crewPic;
 
@@ -76,7 +85,7 @@ std::vector<std::vector<std::vector<cv::Point2i>>> GetFeaturePoint(std::vector<s
 				
 				for (int col = kernelSize / 2; col < Pyr[i][j].cols - kernelSize / 2-1; col++)
 				{
-
+					KeyPoint FeaturePoint;
 					int maxCounter = 0;
 					int minCounter = 0;
 					for (int k = 0; k < 8; k++)
@@ -89,21 +98,38 @@ std::vector<std::vector<std::vector<cv::Point2i>>> GetFeaturePoint(std::vector<s
 					}
 					if (maxCounter&&minCounter)
 						continue;
+
+					FeaturePoint.col = col;
+					FeaturePoint.row = row;
+					FeaturePoint.DOGLayer = i;
+					FeaturePoint.OctaveLayer = j;
+					FeaturePointVector.push_back(FeaturePoint);
 				}
-				tmp.push_back(cv::Point2i(i, j));
+				
 			}
-			crewPic.push_back(tmp);
-			tmp.clear();
 		}
-		FeaturePoint.push_back(crewPic);
-		crewPic.clear();
 	}
-	return FeaturePoint;
+	return FeaturePointVector;
+}
+
+void FirstDifference(std::vector<KeyPoint> FeatureKeyPoint, std::vector<std::vector<cv::Mat>> Pyr)
+{
+	for (int i = 0; i < FeatureKeyPoint.size(); i++)
+	{
+		int col = FeatureKeyPoint[i].col;
+		int row = FeatureKeyPoint[i].row;
+		int DOGLayer = FeatureKeyPoint[i].DOGLayer;
+		int OctaveLayer = FeatureKeyPoint[i].OctaveLayer;
+		//计算一阶差分
+		float dx = Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row](col + 1) - Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row](col - 1)*0.5f;
+		float dy = Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row + 1](col) - Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row - 1](col)*0.5f;
+		float ds = Pyr[DOGLayer][OctaveLayer-1].ptr<uchar>[row](col) - Pyr[DOGLayer][OctaveLayer+1].ptr<uchar>[row](col - 1);
+	}
 }
 
 void HessianMatrix()
 {
-
+	
 }
 
 int main()
@@ -111,7 +137,7 @@ int main()
 	cv::Mat src = cv::imread("timg.jpg");
 	std::vector<std::vector<cv::Mat>> Pyr = BuildGaussian(src, 5);
 	std::vector<std::vector<cv::Mat>> Res = BuildDOG(Pyr);
-	std::vector<std::vector<std::vector<cv::Point2i>>> Feature = GetFeaturePoint(Res);
+	std::vector<KeyPoint> Feature = GetFeaturePoint(Res);
 	
 	/*for (int i = 0; i < Feature.size(); i++)
 	{
