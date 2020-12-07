@@ -1,6 +1,6 @@
 #include <iostream>
 #include <opencv.hpp>
-
+#include <array>
 struct KeyPoint
 {
 	int DOGLayer;
@@ -124,6 +124,8 @@ void FirstDifference(std::vector<KeyPoint> FeatureKeyPoint, std::vector<std::vec
 		float dx = Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row](col + 1) - Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row](col - 1)*0.5f;
 		float dy = Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row + 1](col) - Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row - 1](col)*0.5f;
 		float ds = Pyr[DOGLayer][OctaveLayer-1].ptr<uchar>[row](col) - Pyr[DOGLayer][OctaveLayer+1].ptr<uchar>[row](col - 1);
+		std::array<float, 3> dD = { -dx, -dy, -ds };
+
 
 		//¼ÆËã¶þ½×²î·Ö
 		float PixValue2 = 2.0f*Pyr[DOGLayer][OctaveLayer].ptr<uchar>[row](col);
@@ -141,9 +143,53 @@ void FirstDifference(std::vector<KeyPoint> FeatureKeyPoint, std::vector<std::vec
 			Pyr[DOGLayer][OctaveLayer - 1].ptr<uchar>[row+1](col) + Pyr[DOGLayer][OctaveLayer - 1].ptr<uchar>[row-1](col))*0.25f;
 
 
-		float H[3][3] = { { dxx, dxy, dxs }, { dxy, dyy, dys }, { dxs, dys, dss } };
+		std::array<float, 3> H1 = { dxx, dxy, dxs };
+		std::array<float, 3> H2 = { dxy, dyy, dys };
+		std::array<float, 3> H3 = { dxs, dys, dss };
+		std::array<std::array<float, 3>, 3> H = { H1, H2, H3 };
+
+		std::array<std::array<float, 3>, 3> Hinvert;
+		float det;
+		ComputeDet(det, H);
+		if(std::fabsf(det) < (std::numeric_limits<float>::min)())
+			break;
+		float tmp = 1.0f / det;
+		ComputeHinvert(Hinvert, tmp, H);
+		std::array<float, 3> xHat;
+		ComputeMatDot(xHat, Hinvert, dD);
+
 	}
 }
+
+void ComputeDet(float &det, std::array<std::array<float, 3>, 3> H)
+{
+	det = H[0][0] * (H[1][1] * H[2][2] - H[1][2] * H[2][1]);
+	det -= H[0][1] * (H[1][0] * H[2][2] - H[1][2] * H[2][0]);
+	det += H[0][2] * (H[1][0] * H[2][1] - H[1][1] * H[2][0]);
+}
+
+void ComputeHinvert(std::array<std::array<float, 3>, 3>& a, float s, std::array<std::array<float, 3>, 3> m)
+{
+	a[0][0] = (s)* (m[1][1] * m[2][2] - m[1][2] * m[2][1]);               
+	a[1][0] = (s)* (m[1][2] * m[2][0] - m[1][0] * m[2][2]);               
+	a[2][0] = (s)* (m[1][0] * m[2][1] - m[1][1] * m[2][0]);               
+		
+	a[0][1] = (s)* (m[0][2] * m[2][1] - m[0][1] * m[2][2]);               
+	a[1][1] = (s)* (m[0][0] * m[2][2] - m[0][2] * m[2][0]);               
+	a[2][1] = (s)* (m[0][1] * m[2][0] - m[0][0] * m[2][1]);               
+		
+	a[0][2] = (s)* (m[0][1] * m[1][2] - m[0][2] * m[1][1]);               
+	a[1][2] = (s)* (m[0][2] * m[1][0] - m[0][0] * m[1][2]);               
+	a[2][2] = (s)* (m[0][0] * m[1][1] - m[0][1] * m[1][0]);
+}
+
+void ComputeMatDot(std::array<float, 3> Res, std::array<std::array<float, 3>, 3> m, std::array<float, 3> v)
+{
+	Res[0] = m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2];
+	Res[1] = m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2];
+	Res[2] = m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2];
+}
+
 
 void HessianMatrix()
 {
