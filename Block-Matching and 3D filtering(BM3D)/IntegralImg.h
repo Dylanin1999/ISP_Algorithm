@@ -2,7 +2,6 @@
 #include <opencv.hpp>
 #include <iostream>
 
-
 cv::Mat IntegralImg(cv::Mat src)
 {
 	int Height = src.rows;
@@ -26,6 +25,6 @@ cv::Mat IntegralImg(cv::Mat src)
 		}
 	}
 
-	cv::imshow("integralImage", src);
+	//cv::imshow("integralImage", src);
 	return src;
 }
