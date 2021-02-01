@@ -1,6 +1,8 @@
 #pragma once
-#include <opencv.hpp>
 #include <iostream>
+#include <opencv.hpp>
+
+using namespace std;
 
 cv::Mat IntegralImg(cv::Mat src)
 {

@@ -1,95 +1,104 @@
 #include <opencv.hpp>
 #include <iostream>
+#include <map>
+#include <math.h>
 #include "IntegralImg.h"
+#include "Config.h"
+#include "Hadamard.h"
+int GroupNum = 10;
 
-void Grouping(cv::Mat IntegralImg, cv::Mat grayImg, int Ds, int ds, int stride)
+class BlockMessage
 {
-	cv::Mat dst = grayImg.clone();
-
-	int Height = grayImg.rows;
-	int Width = grayImg.cols;
-	std::cout << "rows: " << Height << ", cols: " << Width << std::endl;
-	float h = 5;
-
-	int blockNum = int((Ds - ds) / (stride + 1));//水平方向的block个数，一共有blockNum平方个block，选取这个前面的几个
-	double Hardthreshold = 0;
-
-
-	double kernelValue = 1 / ((2 * ds + 1) * (2 * ds + 1));
-	std::cout << "kernelValue: " << kernelValue << std::endl;
-
-	std::vector<std::vector<float> > Weight;
-	Weight.resize(2 * (Ds - ds) + 1);
-	for (int k = 0; k < 2 * (Ds - ds) + 1; k++)
-	{
-		Weight[k].resize(2 * (Ds - ds) + 1);
-	}
-	for (int k = 0; k < 2 * (Ds - ds) + 1; k++)
-	{
-		for (int j = 0; j < 2 * (Ds - ds) + 1; j++)
-		{
-			Weight[k][j] = 0;
-		}
-	}
-
-	std::vector<double> disVector;
-
-	for (int row = Ds; row < Height - Ds; row++)
-	{
-		for (int col = Ds; col < Width - Ds; col++)
-		{
-			//确定block的中心
-			float max = 0;
-			float sum = 0;
-			for (int SearchWindowsX = -Ds + ds; SearchWindowsX < Ds - ds; SearchWindowsX+=stride)
-			{
-				for (int SearchWindowsY = -Ds + ds; SearchWindowsY < Ds - ds; SearchWindowsY+=stride)
-				{
-					float distance = 0;
-					//block中心
-					int blockCenterX = row + SearchWindowsX;
-					int blockCenterY = col + SearchWindowsY;
-
-					int blockLUPouintX = row - ds;
-					int blockLUPouintY = col - ds;
-					int blockRDPouintX = row + ds;
-					int blockRDPouintY = col + ds;
-
-					float blockValue = IntegralImg.at<float>(blockRDPouintX, blockRDPouintY) + IntegralImg.at<float>(blockLUPouintX, blockLUPouintY) - IntegralImg.at<float>(blockLUPouintX, blockRDPouintY) - IntegralImg.at<float>(blockRDPouintX, blockLUPouintY);
-					float slipValue = IntegralImg.at<float>(blockCenterX + ds, blockCenterY + ds) - IntegralImg.at<float>(blockCenterX + ds, blockCenterY - ds) - IntegralImg.at<float>(blockCenterX - ds, blockCenterY + ds) + IntegralImg.at<float>(blockCenterX - ds, blockCenterY - ds);
+public:
+	int TopLeftX;
+	int TopLeftY;
+	int width;
+	int height;
+	float distance;
+	cv::Mat Block;
+};
 
 
-					distance = kernelValue * pow((blockValue - slipValue), 2);
-					//std::cout << "distance: " << distance << std::endl;
-					//std::cout << "kernelValue: " << kernelValue << std::endl;
 
-					disVector.push_back(distance);
-
-				}
-			}
-			Weight[Ds - ds + 1][Ds - ds + 1] = max;
-			//std::cout << "sum: " << sum << std::endl;
-			//std::cout << "Weight: " << Weight[Ds - ds + 1][Ds - ds + 1] << std::endl;
-
-			//归一化权重并求得
-			float PixelSum = 0.0;
-			for (int i = 0; i < 2 * (Ds - ds) + 1; i++)
-			{
-				for (int j = 0; j < 2 * (Ds - ds) + 1; j++)
-				{
-					//Weight[i][j] /= sum;
-					PixelSum += grayImg.at<uchar>(row - Ds + i, col - Ds + j) * Weight[i][j];
-
-				}
-			}
-			PixelSum /= sum;
-			//std::cout << "PixelSum: " << PixelSum << std::endl;
-			//if (PixelSum > 255) std::cout << "PixelSum: " << PixelSum << std::endl;
-			//PixelSum > 255 ? PixelSum = 255 : PixelSum=PixelSum;
-			dst.at<uchar>(row, col) = int(PixelSum);
-			//std::cout << "row:" << row << ", col: " << col << std::endl;
-		}
-	}
-	cv::imshow("dst", dst);
-	cv::waitKey(0);
+void CheckRange(int& x, int& y, int ds, int Height, int Width)
+{
+	if (x < 0) x = 0;
+	if (y < 0) y = 0;
+	if ((x + ds) > Width) x = Width - ds;
+	if ((y + ds) > Height) y = Height - ds;
 }
+
+
+std::vector<BlockMessage> Group(cv::Mat src,int SearchWindowSize,int BlockSize,int stride,int PointX,int PointY)
+{
+	std::vector<BlockMessage> storage;
+	//一整个搜索框
+	for (int i = (BlockSize - 1) / 2; i < SearchWindowSize - (BlockSize - 1) / 2; i+=stride)
+	{
+		for (int j = (BlockSize - 1) / 2; j < SearchWindowSize - (BlockSize - 1) / 2; j += stride)
+		{
+			//block center point (i,j)
+			//每一个小的滑动框
+			int distance{ 0 };
+			for (int K = -(BlockSize - 1) / 2; K <= (BlockSize - 1) / 2; K++)
+			{
+				for (int L = -(BlockSize - 1) / 2; L <= (BlockSize - 1) / 2; L++)
+				{
+					auto blockElement = src.at<uchar>(i + K, j + L);
+					auto centerElement = src.at<uchar>(SearchWindowSize / 2 + K, SearchWindowSize / 2 + L);
+
+					distance += pow((centerElement-blockElement), 2);
+				}
+			}
+			//将符合条件的block放入到vector中储存起来。
+			BlockMessage BMess;
+			//if (distance > threshold)
+			//{
+				BMess.TopLeftX = PointX + i;
+				BMess.TopLeftY = PointY + j;
+				BMess.height = BlockSize;
+				BMess.width = BlockSize;
+				BMess.distance = distance;
+				cv::Mat dctPic;
+				cv::Mat tmp = src(cv::Rect(BMess.TopLeftX, BMess.TopLeftY, BMess.height + 1, BMess.width + 1));
+				tmp.convertTo(tmp, CV_32F);
+				cv::dct(tmp, dctPic);
+				storage.emplace_back(BMess);
+			//}
+		}
+	}
+	return storage;
+}
+
+int main()
+{
+	//cv::Mat pic = cv::imread("lena.jpg",0);
+	//int Height = pic.rows;
+	//int Width = pic.cols;
+
+	//std::vector<std::vector<BlockMessage>> Block;
+
+	//for (int i = 0; i < (Height-SearchWindowSize); i++)
+	//{
+	//	for (int j = 0; j < (Width - SearchWindowSize); j++)
+	//	{
+	//		//center point is （i,j)
+	//		cv::Rect Rect(i, j, SearchWindowSize, SearchWindowSize);
+	//		cv::Mat temp = pic(Rect);
+	//		auto BlockRes = Group(temp, SearchWindowSize, BlockSize, stride, i, j);
+	//		Block.emplace_back(BlockRes);
+	//		//int num = BlockRes.size();
+	//	}
+	//}
+	std::vector<std::vector<int>> HadamardMatrix;
+	Hadmard(HadamardMatrix);
+	for (int i = 0; i < HadamardMatrix.size(); i++)
+	{
+		for (int j = 0; j < HadamardMatrix[0].size(); j++)
+		{
+			std::cout << HadamardMatrix[i][j] << " ";
+		}
+		std::cout << std::endl;
+	}
+}
+
