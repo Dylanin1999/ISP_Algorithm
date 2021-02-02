@@ -1,8 +1,6 @@
 #include <iostream>
 #include <vector>
 
-#define M 10 
-#define N 10
 //生成哈达玛矩阵的函数
 int CreateHadmard(int i, int j)
 {
@@ -22,19 +20,19 @@ int CreateHadmard(int i, int j)
     }
 }
 
-void Hadmard(std::vector<std::vector<int>> &Hadamard)
+void Hadmard(std::vector<int> &Hadamard,int M,int N)
 {
 
     int i, j;
 
     printf("生成哈达玛矩阵\n");
-    for (i = 0; i < M; i++)
+    for (i = 0; i < M*N; i++)
     {   
-        std::vector<int> temp;
-        Hadamard.push_back(temp);
-        for (j = 0; j < N; j++)
-        {
+        //std::vector<int> temp;
+        //Hadamard.push_back(temp);
+		/*for (j = 0; j < N; j++)
+		{*/
             Hadamard[i].push_back(CreateHadmard(i, j));
-        }
+        //}
     }
 }

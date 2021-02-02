@@ -5,6 +5,7 @@
 #include "IntegralImg.h"
 #include "Config.h"
 #include "Hadamard.h"
+#include "HardThreshold.h"
 int GroupNum = 10;
 
 class BlockMessage
@@ -19,19 +20,10 @@ public:
 };
 
 
-
-void CheckRange(int& x, int& y, int ds, int Height, int Width)
-{
-	if (x < 0) x = 0;
-	if (y < 0) y = 0;
-	if ((x + ds) > Width) x = Width - ds;
-	if ((y + ds) > Height) y = Height - ds;
-}
-
-
-std::vector<BlockMessage> Group(cv::Mat src,int SearchWindowSize,int BlockSize,int stride,int PointX,int PointY)
+std::vector<BlockMessage> Group(cv::Mat src,int SearchWindowSize,int BlockSize,int stride,int PointX,int PointY, cv::Mat pic, std::vector<std::vector<float>> &TD2)
 {
 	std::vector<BlockMessage> storage;
+
 	//Ò»Õû¸öËÑË÷¿ò
 	for (int i = (BlockSize - 1) / 2; i < SearchWindowSize - (BlockSize - 1) / 2; i+=stride)
 	{
@@ -60,45 +52,71 @@ std::vector<BlockMessage> Group(cv::Mat src,int SearchWindowSize,int BlockSize,i
 				BMess.width = BlockSize;
 				BMess.distance = distance;
 				cv::Mat dctPic;
-				cv::Mat tmp = src(cv::Rect(BMess.TopLeftX, BMess.TopLeftY, BMess.height + 1, BMess.width + 1));
+				cv::Mat tmp = pic(cv::Rect(BMess.TopLeftX, BMess.TopLeftY, BMess.height + 1, BMess.width + 1));
 				tmp.convertTo(tmp, CV_32F);
 				cv::dct(tmp, dctPic);
 				storage.emplace_back(BMess);
+				for (int i = 0; i < dctPic.cols; i++)
+				{
+					if(TD2.size()<dctPic.cols)
+						TD2.emplace_back(std::vector<float>());
+					for (int j = 0; j < dctPic.rows; j++)
+					{
+						TD2[i].emplace_back(dctPic.at<float>(i, j));
+					}
+				}
 			//}
 		}
 	}
 	return storage;
 }
 
+
+bool checkRange(int PointX, int PointY, int SearchWindowSize, int Width, int Height)
+{
+	if ((PointX + SearchWindowSize) < Width && (PointY + SearchWindowSize) < Height)
+		return true;
+	else
+		return false;
+		
+}
+
 int main()
 {
-	//cv::Mat pic = cv::imread("lena.jpg",0);
-	//int Height = pic.rows;
-	//int Width = pic.cols;
+	cv::Mat pic = cv::imread("lena.jpg",0);
+	int Height = pic.rows;
+	int Width = pic.cols;
 
-	//std::vector<std::vector<BlockMessage>> Block;
-
-	//for (int i = 0; i < (Height-SearchWindowSize); i++)
-	//{
-	//	for (int j = 0; j < (Width - SearchWindowSize); j++)
-	//	{
-	//		//center point is £¨i,j)
-	//		cv::Rect Rect(i, j, SearchWindowSize, SearchWindowSize);
-	//		cv::Mat temp = pic(Rect);
-	//		auto BlockRes = Group(temp, SearchWindowSize, BlockSize, stride, i, j);
-	//		Block.emplace_back(BlockRes);
-	//		//int num = BlockRes.size();
-	//	}
-	//}
-	std::vector<std::vector<int>> HadamardMatrix;
-	Hadmard(HadamardMatrix);
-	for (int i = 0; i < HadamardMatrix.size(); i++)
+	std::vector<std::vector<BlockMessage>> Block;
+	for (int i = 0; i < (Height-SearchWindowSize); i++)
 	{
-		for (int j = 0; j < HadamardMatrix[0].size(); j++)
+		for (int j = 0; j < (Width - SearchWindowSize); j++)
 		{
-			std::cout << HadamardMatrix[i][j] << " ";
+			//center point is £¨i,j)
+			std::vector<std::vector<float>> TD2;
+			std::vector<int> HadamardMatrix;
+			if (checkRange)
+			{
+				cv::Rect Rect(i, j, SearchWindowSize, SearchWindowSize);
+			//	std::cout << "right bottom: " << i + SearchWindowSize << ", " << j + SearchWindowSize << std::endl;;
+				cv::Mat temp = pic(Rect);
+				auto BlockRes = Group(temp, SearchWindowSize, BlockSize, stride, i, j,pic, TD2);
+				Block.emplace_back(BlockRes);
+			}
+			for (int K = 0; K < TD2.size(); K++)
+			{
+				Hadmard(HadamardMatrix, TD2[K].size() / 4, 4);
+				for (int L = 0; L < HadamardMatrix.size(); L++)
+				{
+					TD2[K][L] = TD2[K][L] * HadamardMatrix[L];
+					HardThreshold(TD2[K][L], HardThresholdValue);
+				}
+			}
+			std::cout << "TD2 size: " << TD2.size() << ", " << TD2[0].size();
 		}
-		std::cout << std::endl;
 	}
+	
+
+
 }
 
