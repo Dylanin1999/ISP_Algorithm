@@ -81,6 +81,12 @@ bool checkRange(int PointX, int PointY, int SearchWindowSize, int Width, int Hei
 		
 }
 
+void Vec2Mat(std::vector<std::vector<float>> Vec, cv::Mat& MatPic)
+{
+	
+}
+
+
 int main()
 {
 	cv::Mat pic = cv::imread("lena.jpg",0);
@@ -103,13 +109,20 @@ int main()
 				auto BlockRes = Group(temp, SearchWindowSize, BlockSize, stride, i, j,pic, TD2);
 				Block.emplace_back(BlockRes);
 			}
+			std::vector<std::vector<float>> Res1;
 			for (int K = 0; K < TD2.size(); K++)
 			{
 				Hadmard(HadamardMatrix, TD2[K].size() / 4, 4);
 				for (int L = 0; L < HadamardMatrix.size(); L++)
 				{
+					if (Res1.size() < BlockSize)
+					{
+						Res1.emplace_back(std::vector<float>());
+					}
 					TD2[K][L] = TD2[K][L] * HadamardMatrix[L];
 					HardThreshold(TD2[K][L], HardThresholdValue);
+					//开始将第三维转换为正常的图像
+					Res1[(K * L) / 4].emplace_back(TD2[K][L]);
 				}
 			}
 			std::cout << "TD2 size: " << TD2.size() << ", " << TD2[0].size();
