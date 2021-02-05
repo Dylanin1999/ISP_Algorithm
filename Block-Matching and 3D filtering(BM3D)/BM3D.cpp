@@ -6,6 +6,7 @@
 #include "Config.h"
 #include "Hadamard.h"
 #include "HardThreshold.h"
+#include "addnoise.h"
 int GroupNum = 10;
 
 class BlockMessage
@@ -20,116 +21,81 @@ public:
 };
 
 
-std::vector<BlockMessage> Group(cv::Mat src,int SearchWindowSize,int BlockSize,int stride,int PointX,int PointY, cv::Mat pic, std::vector<std::vector<float>> &TD2)
+std::vector<std::vector<::Mat>> GetAllBlock(cv::Mat src, int blocksize, int stride, std::vector<cv::Point2d>& blockLUPoint)
 {
-	std::vector<BlockMessage> storage;
-
-	//一整个搜索框
-	for (int i = (BlockSize - 1) / 2; i < SearchWindowSize - (BlockSize - 1) / 2; i+=stride)
+	std::vector<std::vector<::Mat>> block;
+	for (int i = 0; i < src.rows - blocksize;i+=stride)
 	{
-		for (int j = (BlockSize - 1) / 2; j < SearchWindowSize - (BlockSize - 1) / 2; j += stride)
+		block.push_back(std::vector<cv::Mat>());
+		for (int j=0;j<src.cols - blocksize;j+= stride)
 		{
-			//block center point (i,j)
-			//每一个小的滑动框
-			int distance{ 0 };
-			for (int K = -(BlockSize - 1) / 2; K <= (BlockSize - 1) / 2; K++)
-			{
-				for (int L = -(BlockSize - 1) / 2; L <= (BlockSize - 1) / 2; L++)
-				{
-					auto blockElement = src.at<uchar>(i + K, j + L);
-					auto centerElement = src.at<uchar>(SearchWindowSize / 2 + K, SearchWindowSize / 2 + L);
-
-					distance += pow((centerElement-blockElement), 2);
-				}
-			}
-			//将符合条件的block放入到vector中储存起来。
-			BlockMessage BMess;
-			//if (distance > threshold)
-			//{
-				BMess.TopLeftX = PointX + i;
-				BMess.TopLeftY = PointY + j;
-				BMess.height = BlockSize;
-				BMess.width = BlockSize;
-				BMess.distance = distance;
-				cv::Mat dctPic;
-				cv::Mat tmp = pic(cv::Rect(BMess.TopLeftX, BMess.TopLeftY, BMess.height + 1, BMess.width + 1));
-				tmp.convertTo(tmp, CV_32F);
-				cv::dct(tmp, dctPic);
-				storage.emplace_back(BMess);
-				for (int i = 0; i < dctPic.cols; i++)
-				{
-					if(TD2.size()<dctPic.cols)
-						TD2.emplace_back(std::vector<float>());
-					for (int j = 0; j < dctPic.rows; j++)
-					{
-						TD2[i].emplace_back(dctPic.at<float>(i, j));
-					}
-				}
-			//}
+			cv::Mat Tmp = src(cv::Rect(i, j, blocksize, blocksize));
+			block[i].emplace_back(Tmp);
+			blockLUPoint.emplace_back(::Point2d(i, j));
 		}
 	}
-	return storage;
+	return block;
+}
+
+void BlockDctTrans(std::vector<cv::Mat>& block)
+{
+	for (int i = 0; i < block.size();i++)
+	{
+		cv::dct(block[i], block[i]);
+	}
+}
+
+float calDistance(cv::Mat Center,cv::Mat Block)
+{
+	if (Center.rows!=Block.rows|| Center.cols != Block.cols)
+	{
+		return 0;
+	}
+	float distance = 0;
+	for (int i = 0; i < Center.rows; i++)
+	{
+		for (int j = 0; j < Center.cols; j++)
+		{
+			distance += pow((Center.at<float>(i, j) - Block.at<float>(i, j)), 2);
+		}
+	}
+	return distance / (Center.rows * Center.cols);
 }
 
 
-bool checkRange(int PointX, int PointY, int SearchWindowSize, int Width, int Height)
+std::multimap<float, cv::Mat>  Group(std::vector<std::vector<cv::Mat>> blockVector, int BlockIndexX, int BlockIndexY,int SearchWindowSize,int BlockSize,int stride)
 {
-	if ((PointX + SearchWindowSize) < Width && (PointY + SearchWindowSize) < Height)
-		return true;
-	else
-		return false;
-		
-}
+	int halfNum = ((SearchWindowSize - BlockSize) / stride) / 2;
+	int minIndexX = std::max(0, BlockIndexX - halfNum);
+	int maxIndexX = std::min(int(blockVector.size() - 1), BlockIndexX + halfNum);
 
-void Vec2Mat(std::vector<std::vector<float>> Vec, cv::Mat& MatPic)
-{
-	
+	int minIndexY = std::max(0, BlockIndexY - halfNum);
+	int maxIndexY = std::min(int(blockVector.size() - 1), BlockIndexY + halfNum);
+
+	std::multimap<float, cv::Mat> sortGroup;
+
+	//下面是正式的计算Group方式
+	for (int i=minIndexX;i<maxIndexX;i++)
+	{
+		for (int j=minIndexY;i<maxIndexY;j++)
+		{
+			float distance = calDistance(blockVector[BlockIndexX][BlockIndexY], blockVector[i][j]);
+			sortGroup.insert(std::pair<float, cv::Mat>(distance, blockVector[BlockIndexX][BlockIndexY]));
+		}
+	}
+	return sortGroup;
 }
 
 
 int main()
 {
-	cv::Mat pic = cv::imread("lena.jpg",0);
+	cv::Mat pic = cv::imread("house.png", 0);
+	pic = addGaussianNoise(pic);
+	cv::Mat src = pic.clone();
 	int Height = pic.rows;
 	int Width = pic.cols;
 
 	std::vector<std::vector<BlockMessage>> Block;
-	for (int i = 0; i < (Height-SearchWindowSize); i++)
-	{
-		for (int j = 0; j < (Width - SearchWindowSize); j++)
-		{
-			//center point is （i,j)
-			std::vector<std::vector<float>> TD2;
-			std::vector<int> HadamardMatrix;
-			if (checkRange)
-			{
-				cv::Rect Rect(i, j, SearchWindowSize, SearchWindowSize);
-			//	std::cout << "right bottom: " << i + SearchWindowSize << ", " << j + SearchWindowSize << std::endl;;
-				cv::Mat temp = pic(Rect);
-				auto BlockRes = Group(temp, SearchWindowSize, BlockSize, stride, i, j,pic, TD2);
-				Block.emplace_back(BlockRes);
-			}
-			std::vector<std::vector<float>> Res1;
-			for (int K = 0; K < TD2.size(); K++)
-			{
-				Hadmard(HadamardMatrix, TD2[K].size() / 4, 4);
-				for (int L = 0; L < HadamardMatrix.size(); L++)
-				{
-					if (Res1.size() < BlockSize)
-					{
-						Res1.emplace_back(std::vector<float>());
-					}
-					TD2[K][L] = TD2[K][L] * HadamardMatrix[L];
-					HardThreshold(TD2[K][L], HardThresholdValue);
-					//开始将第三维转换为正常的图像
-					Res1[(K * L) / 4].emplace_back(TD2[K][L]);
-				}
-			}
-			std::cout << "TD2 size: " << TD2.size() << ", " << TD2[0].size();
-		}
-	}
-	
-
-
+	return 0;
 }
 
