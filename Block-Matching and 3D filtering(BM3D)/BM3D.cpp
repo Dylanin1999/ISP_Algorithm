@@ -24,24 +24,28 @@ public:
 std::vector<std::vector<::Mat>> GetAllBlock(cv::Mat src, int blocksize, int stride, std::vector<cv::Point2d>& blockLUPoint)
 {
 	std::vector<std::vector<::Mat>> block;
-	for (int i = 0; i < src.rows - blocksize;i+=stride)
+	for (int i = 0; i < src.rows - blocksize-1;i += stride)
 	{
-		block.push_back(std::vector<cv::Mat>());
-		for (int j=0;j<src.cols - blocksize;j+= stride)
+		block.emplace_back(std::vector<cv::Mat>());
+		for (int j=0;j<src.cols - blocksize-1;j += stride)
 		{
 			cv::Mat Tmp = src(cv::Rect(i, j, blocksize, blocksize));
-			block[i].emplace_back(Tmp);
-			blockLUPoint.emplace_back(::Point2d(i, j));
+			block[block.size()-1].emplace_back(Tmp);
+			blockLUPoint.emplace_back(cv::Point2d(i, j));
 		}
 	}
 	return block;
 }
 
-void BlockDctTrans(std::vector<cv::Mat>& block)
+void BlockDctTrans(std::vector<std::vector<::Mat>>& block)
 {
 	for (int i = 0; i < block.size();i++)
 	{
-		cv::dct(block[i], block[i]);
+		for (int j=0;j<block.size();j++)
+		{
+			block[i][j].convertTo(block[i][j], CV_32F);
+			cv::dct(block[i][j], block[i][j]);
+		}
 	}
 }
 
@@ -86,11 +90,94 @@ std::multimap<float, cv::Mat>  Group(std::vector<std::vector<cv::Mat>> blockVect
 	return sortGroup;
 }
 
+int log2(const int N)
+{
+	int k = 1;
+	int n = 0;
+	while (k < N)
+	{
+		k *= 2;
+		n++;
+	}
+	return n;
+}
+
+void wavedec(float* input, int length)
+{
+	int N = log2(length);
+	if (N == 0)return;
+	float* tmp = new float[length];
+	for (int i = 0; i < length; i++) {
+		tmp[i] = input[i];
+	}
+	for (int k = 0; k < length / 2; k++)
+	{
+		input[k] = (tmp[2 * k] + tmp[2 * k + 1]) / sqrt(2);
+		input[k + length / 2] = (tmp[2 * k] - tmp[2 * k + 1]) / sqrt(2);
+	}
+	delete[] tmp;
+	wavedec(input, length / 2);
+	return;
+}
+
+void waverec(float* input, int length, int N)
+{
+	if (log2(length) > N) return;
+	float* tmp = new float[length];
+	for (int i = 0; i < length; i++) {
+		tmp[i] = input[i];
+	}
+	for (int k = 0; k < length / 2; k++)
+	{
+		input[2 * k] = (tmp[k] + tmp[k + length / 2]) / sqrt(2);
+		input[2 * k + 1] = (tmp[k] - tmp[k + length / 2]) / sqrt(2);
+	}
+	delete tmp;
+	waverec(input, length * 2, N);
+}
+
+
+
+
+
+void tran1d(std::vector<std::vector<cv::Mat>>& block,int BlockSize)
+{
+	int size = block.size() * block[0].size();
+	for (int i=0;i<BlockSize;i++)
+	{
+		for (int j=0;j< BlockSize;j++)
+		{
+			float *data = new float[size];
+			for (int k = 0;k<block.size();k++)
+			{
+				for (int L = 0; L < block[k].size(); L++)
+				{
+					data[k*block.size()+L] = block[k][L].at<float>(i, j);
+				}
+			}
+			wavedec(data, size);
+			for (int k = 0; k < block.size(); k++)
+			{
+				for (int L = 0; L < block[k].size(); L++)
+				{
+					block[k][L].at<float>(i, j) = data[k * block.size() + L];
+				}
+			}
+		}
+	}
+}
+
+
 
 int main()
 {
 	cv::Mat pic = cv::imread("house.png", 0);
 	pic = addGaussianNoise(pic);
+	std::vector<cv::Point2d> blockLUPoint;
+
+	std::vector<std::vector<::Mat>> blockGroup = GetAllBlock(pic, BlockSize, stride, blockLUPoint);
+	BlockDctTrans(blockGroup);
+
 	cv::Mat src = pic.clone();
 	int Height = pic.rows;
 	int Width = pic.cols;
