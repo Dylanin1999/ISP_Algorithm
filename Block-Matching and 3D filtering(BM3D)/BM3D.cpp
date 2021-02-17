@@ -81,10 +81,10 @@ std::multimap<float, cv::Mat>  Group(std::vector<std::vector<cv::Mat>> blockVect
 	//下面是正式的计算Group方式
 	for (int i=minIndexX;i<maxIndexX;i++)
 	{
-		for (int j=minIndexY;i<maxIndexY;j++)
+		for (int j=minIndexY;j<maxIndexY;j++)
 		{
 			float distance = calDistance(blockVector[BlockIndexX][BlockIndexY], blockVector[i][j]);
-			sortGroup.insert(std::pair<float, cv::Mat>(distance, blockVector[BlockIndexX][BlockIndexY]));
+			sortGroup.insert(std::pair<float, cv::Mat>(distance, blockVector[i][j]));
 		}
 	}
 	return sortGroup;
@@ -123,8 +123,10 @@ void wavedec(float* input, int length)
 void waverec(float* input, int length, int N)
 {
 	if (log2(length) > N) return;
+	
 	float* tmp = new float[length];
-	for (int i = 0; i < length; i++) {
+	for (int i = 0; i < length; i++) 
+	{
 		tmp[i] = input[i];
 	}
 	for (int k = 0; k < length / 2; k++)
@@ -132,7 +134,7 @@ void waverec(float* input, int length, int N)
 		input[2 * k] = (tmp[k] + tmp[k + length / 2]) / sqrt(2);
 		input[2 * k + 1] = (tmp[k] - tmp[k + length / 2]) / sqrt(2);
 	}
-	delete tmp;
+	delete[] tmp;
 	waverec(input, length * 2, N);
 }
 
@@ -140,45 +142,39 @@ void waverec(float* input, int length, int N)
 
 
 
-void tran1d(std::vector<std::vector<cv::Mat>>& block,int BlockSize)
+void tran1d(std::vector<cv::Mat>& block,int BlockSize)
 {
-	int size = block.size() * block[0].size();
+	int size = block.size();
+	int layer = log2(size);
+	float* data = new float[size];
 	for (int i=0;i<BlockSize;i++)
 	{
 		for (int j=0;j< BlockSize;j++)
 		{
-			float *data = new float[size];
-			for (int k = 0;k<block.size();k++)
+			for (int k = 0;k< size;k++)
 			{
-				for (int L = 0; L < block[k].size(); L++)
-				{
-					data[k*block.size()+L] = block[k][L].at<float>(i, j);
-				}
+				data[k] = block[k].at<float>(i, j);
 			}
 			wavedec(data, size);
-			for (int k = 0; k < block.size(); k++)
-			{
-				for (int L = 0; L < block[k].size(); L++)
-				{
-					block[k][L].at<float>(i, j) = data[k * block.size() + L];
-				}
+			for (int k = 0; k < size; k++)
+			{	
+				//std::cout << "data: " << data[k] << std::endl;
+				block[k].at<float>(i, j) = data[k];
 			}
 		}
 	}
+	delete[] data;
 }
 
-void shrink(std::vector<std::vector<cv::Mat>>& block, float threshold)
+void shrink(std::vector<cv::Mat>& block, float threshold)
 {
-	for (int i=0;i<block.size();i++)
+	for (int row=0;row<block[0].rows;row++)
 	{
-		for (int j=0;j<block.size();j++)
+		for (int col=0;col< block[0].cols;col++)
 		{
-			for (int rows = 0;rows<block[i][j].rows;rows++)
+			for (int num = 0; num <block.size(); num++)
 			{
-				for (int cols = 0;cols<block[i][j].cols;cols++)
-				{
-					block[i][j].at<float>(rows, cols) = fabs(block[i][j].at<float>(rows, cols)) > threshold ? block[i][j].at<float>(rows, cols) : 0;
-				}
+				block[num].at<float>(row, col) = fabs(block[num].at<float>(row, col)) > threshold ? block[num].at<float>(row, col) : 0;
 			}
 		}
 	}
@@ -251,6 +247,36 @@ Mat gen_kaiser(int beta, int length)//How to do this?
 	}
 }
 
+void inv_tran_3d(vector<Mat>& input, int patchSize)
+{
+	int size = input.size();
+	int layer = log2(size);
+	float* data = new float[size];
+	for (int i = 0; i < patchSize; i++)
+	{
+		for (int j = 0; j < patchSize; j++)
+		{
+			for (int k = 0; k < size; k++)
+			{
+				data[k] = input[k].at<float>(i, j);
+			}
+			waverec(data, 2, layer);
+			for (int k = 0; k < size; k++)
+			{
+				input[k].at<float>(i, j) = data[k];
+			}
+		}
+	}
+	for (int k = 0; k < size; k++)
+	{
+		cv::idct(input[k], input[k]);
+	}
+	//delete[] data;
+}
+
+
+
+
 
 int main()
 {
@@ -259,9 +285,28 @@ int main()
 	std::vector<cv::Point2d> blockLUPoint;
 
 	std::vector<std::vector<::Mat>> blockGroup = GetAllBlock(pic, BlockSize, stride, blockLUPoint);
+	
 	BlockDctTrans(blockGroup);
-	tran1d(blockGroup, BlockSize);
-	shrink(blockGroup, Threshold);
+
+	for (int i = 0;i<blockGroup.size();i++)
+	{
+		for (int j = 0;j<blockGroup[0].size();j++)
+		{
+			std::multimap<float, cv::Mat> a  = Group(blockGroup, i, j, SearchWindowSize, BlockSize, stride);
+			std::vector<cv::Mat> GroupPic;
+			auto itor = a.begin();
+			for (int GroupNum = 0; GroupNum<a.size();GroupNum++)
+			{
+				GroupPic.emplace_back(itor->second);
+				itor++;
+			}
+			tran1d(GroupPic, BlockSize);
+			shrink(GroupPic, Threshold);
+			inv_tran_3d(GroupPic, BlockSize);
+			//aggregation(GroupPic,blockLUPoint)
+		}
+	}
+	
 
 	Mat denominator_hd(pic.size(), CV_32FC1, Scalar::all(0));
 	Mat numerator_hd(pic.size(), CV_32FC1, Scalar::all(0));
