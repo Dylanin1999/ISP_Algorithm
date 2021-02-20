@@ -1,93 +1,304 @@
-#include <opencv.hpp>
-#include <iostream>
-#include <map>
+#include <opencv2\highgui\highgui.hpp>
+#include <opencv2\opencv.hpp>
+#include <opencv2\core\core.hpp>
+#include <vector>
 #include <math.h>
-#include "IntegralImg.h"
-#include "Config.h"
-#include "Hadamard.h"
-#include "HardThreshold.h"
-#include "addnoise.h"
-int GroupNum = 10;
+#include "bm3d.h"
 
-class BlockMessage
+using namespace cv;
+using namespace std;
+
+void addGuassianNoise(const int sigma, const Mat origin, Mat& noisy)
 {
-public:
-	int TopLeftX;
-	int TopLeftY;
-	int width;
-	int height;
-	float distance;
-	cv::Mat Block;
-};
-
-
-std::vector<std::vector<::Mat>> GetAllBlock(cv::Mat src, int blocksize, int stride, std::vector<cv::Point2d>& blockLUPoint)
-{
-	std::vector<std::vector<::Mat>> block;
-	for (int i = 0; i < src.rows - blocksize-1;i += stride)
+	Mat noise(origin.size(), CV_32FC1);
+	randn(noise, Scalar::all(0), Scalar::all(sigma));
+	for (int i = 0; i < noise.rows; i++)
 	{
-		block.emplace_back(std::vector<cv::Mat>());
-		for (int j=0;j<src.cols - blocksize-1;j += stride)
+		const float* Mx = origin.ptr<float>(i);
+		float* Mn = noise.ptr<float>(i);
+		float* My = noisy.ptr<float>(i);
+		for (int j = 0; j < origin.cols; j++)
 		{
-			cv::Mat Tmp = src(cv::Rect(i, j, blocksize, blocksize));
-			block[block.size()-1].emplace_back(Tmp);
-			blockLUPoint.emplace_back(cv::Point2d(i, j));
-		}
-	}
-	return block;
-}
-
-void BlockDctTrans(std::vector<std::vector<::Mat>>& block)
-{
-	for (int i = 0; i < block.size();i++)
-	{
-		for (int j=0;j<block.size();j++)
-		{
-			block[i][j].convertTo(block[i][j], CV_32F);
-			cv::dct(block[i][j], block[i][j]);
+			My[j] = Mx[j] + Mn[j];
 		}
 	}
 }
 
-float calDistance(cv::Mat Center,cv::Mat Block)
+float cal_psnr(const Mat x, const Mat y)
 {
-	if (Center.rows!=Block.rows|| Center.cols != Block.cols)
+	float RMS = 0;
+	for (int i = 0; i < x.rows; i++)
 	{
-		return 0;
-	}
-	float distance = 0;
-	for (int i = 0; i < Center.rows; i++)
-	{
-		for (int j = 0; j < Center.cols; j++)
+		const float* Mx = x.ptr<float>(i);
+		const float* My = y.ptr<float>(i);
+		for (int j = 0; j < x.cols; j++)
 		{
-			distance += pow((Center.at<float>(i, j) - Block.at<float>(i, j)), 2);
+			RMS += (My[j] - Mx[j]) * (My[j] - Mx[j]);
 		}
 	}
-	return distance / (Center.rows * Center.cols);
+	RMS = sqrtf(RMS / (x.rows * x.cols));
+	return 20 * log10f(255.0 / RMS);
 }
 
-
-std::multimap<float, cv::Mat>  Group(std::vector<std::vector<cv::Mat>> blockVector, int BlockIndexX, int BlockIndexY,int SearchWindowSize,int BlockSize,int stride)
+int runBm3d(
+	const Mat image_noisy,
+	Mat& image_basic,
+	Mat& image_denoised
+)
 {
-	int halfNum = ((SearchWindowSize - BlockSize) / stride) / 2;
-	int minIndexX = std::max(0, BlockIndexX - halfNum);
-	int maxIndexX = std::min(int(blockVector.size() - 1), BlockIndexX + halfNum);
+	
 
-	int minIndexY = std::max(0, BlockIndexY - halfNum);
-	int maxIndexY = std::min(int(blockVector.size() - 1), BlockIndexY + halfNum);
+	int Height = image_noisy.rows;
+	int Width = image_noisy.cols;
+	int Channels = image_noisy.channels();
 
-	std::multimap<float, cv::Mat> sortGroup;
+	
+	vector<Mat> block_noisy;//store the patch
+	vector<int>row_idx;//patch idx along the row direction
+	vector<int>col_idx;
+	GetAllBlock(image_noisy, Width, Height, Channels, kHard, pHard, block_noisy, row_idx, col_idx);
+	int bn_r = row_idx.size();
+	int bn_c = col_idx.size();
+	tran2d(block_noisy, kHard);
 
-	//下面是正式的计算Group方式
-	for (int i=minIndexX;i<maxIndexX;i++)
+	vector<int> sim_num;//index number for the selected similar patch in the block vector
+	vector<int> sim_idx_row;//index number for the selected similar patch in the original Mat
+	vector<int> sim_idx_col;
+
+	vector<Mat>data;//store the data during transforming and shrinking
+
+	Mat kaiser = gen_kaiser(beta, kHard);//2-D kaiser window 
+	float weight_hd = 1.0;//weights used for current relevent patch
+	Mat denominator_hd(image_noisy.size(), CV_32FC1, Scalar::all(0));
+	Mat numerator_hd(image_noisy.size(), CV_32FC1, Scalar::all(0));
+	for (int i = 0; i < bn_r; i++)
 	{
-		for (int j=minIndexY;j<maxIndexY;j++)
+		for (int j = 0; j < bn_c; j++)
 		{
-			float distance = calDistance(blockVector[BlockIndexX][BlockIndexY], blockVector[i][j]);
-			sortGroup.insert(std::pair<float, cv::Mat>(distance, blockVector[i][j]));
+			//for each pack in the block
+			sim_num.clear();
+			sim_idx_row.clear();
+			sim_idx_col.clear();
+			data.clear();
+
+			getSimilarPatch(block_noisy, data, sim_num,
+				i, j, bn_r, bn_c, int((nHard - kHard) / pHard) + 1, NHard, tao_hard);//block matching
+
+			for (int k = 0; k < sim_num.size(); k++)//calculate idx in the left-top corner
+			{
+				sim_idx_row.push_back(row_idx[sim_num[k] / bn_c]);
+				sim_idx_col.push_back(col_idx[sim_num[k] % bn_c]);
+			}
+
+			tran1d(data, kHard);//3-D transforming
+
+			DetectZero(data, lambda3d * sigma);//shrink the cofficient
+
+			weight_hd = calculate_weight_hd(data, sigma);
+
+			Inver3Dtrans(data,kHard);//3-D inverse transforming
+
+			aggregation(numerator_hd, denominator_hd, sim_idx_row, sim_idx_col, data, weight_hd, kHard, kaiser);//aggregation using weigths
 		}
 	}
-	return sortGroup;
+	image_basic = numerator_hd / denominator_hd;
+
+	//step 2 wiena filtering
+	vector<Mat> block_basic;
+	row_idx.clear();
+	col_idx.clear();
+
+	GetAllBlock(image_basic, Width, Height, Channels, kHard, pHard, block_basic, row_idx, col_idx);
+	bn_r = row_idx.size();
+	bn_c = col_idx.size();
+
+	vector<Mat> data_noisy;
+	float weight_wien = 1.0;//weights used for current relevent patch
+	Mat denominator_wien(image_noisy.size(), CV_32FC1, Scalar::all(0));
+	Mat numerator_wien(image_noisy.size(), CV_32FC1, Scalar::all(0));
+	for (int i = 0; i < bn_r; i++)
+	{
+		for (int j = 0; j < bn_c; j++)
+		{
+			//for each pack in the basic estimate
+			sim_num.clear();
+			sim_idx_row.clear();
+			sim_idx_col.clear();
+			data.clear();
+			data_noisy.clear();
+
+			getSimilarPatch(block_basic, data, sim_num, i, j, bn_r, bn_c,
+				int((nWien - kWien) / pWien) + 1, NWien, tao_wien);//block matching
+
+			for (int k = 0; k < sim_num.size(); k++)//calculate idx in the left-top corner
+			{
+				sim_idx_row.push_back(row_idx[sim_num[k] / bn_c]);
+				sim_idx_col.push_back(col_idx[sim_num[k] % bn_c]);
+				data_noisy.push_back(image_noisy(Rect(sim_idx_col[k], sim_idx_row[k], kWien, kWien)));
+			}
+
+			tran2d(data,kWien);
+			tran2d(data_noisy, kWien);
+			tran1d(data, kWien);
+			tran1d(data_noisy,kWien);
+
+			gen_wienFilter(data, sigma);
+			weight_wien = calculate_weight_wien(data, sigma);
+			wienFiltering(data_noisy, data, kWien);
+
+			Inver3Dtrans(data_noisy, kWien);
+
+			aggregation(numerator_wien, denominator_wien,
+				sim_idx_row, sim_idx_col, data_noisy, weight_wien, kWien, kaiser);
+		}
+	}
+	image_denoised = numerator_wien / denominator_wien;
+
+	return EXIT_SUCCESS;
+}
+
+void GetAllBlock(const Mat img, const int width, const int height, const int channels,
+	const int patchSize, const int step, vector<Mat>& block, vector<int>& row_idx, vector<int>& col_idx)
+{
+	Mat tmp(patchSize, patchSize, CV_32FC1);
+	for (int i = 0; i <= height - patchSize; i += step)
+	{
+		row_idx.push_back(i);
+	}
+	if ((height - patchSize) % step != 0)
+	{
+		row_idx.push_back(height - patchSize);
+	}
+	for (int j = 0; j <= width - patchSize; j += step)
+	{
+		col_idx.push_back(j);
+	}
+	if ((width - patchSize) % step != 0)
+	{
+		col_idx.push_back(width - patchSize);
+	}
+	for (int i = 0; i < row_idx.size(); i++)
+	{
+		for (int j = 0; j < col_idx.size(); j++)
+		{
+			tmp = img(Rect(col_idx[j], row_idx[i], patchSize, patchSize));
+			block.push_back(tmp);
+		}
+	}
+}
+
+void tran2d(vector<Mat>& input, int patchsize)
+{
+
+	int length = input.size();
+	for (int i = 0; i < length; i++)
+	{
+		dct(input[i], input[i]);
+	}
+}
+
+void getSimilarPatch(const vector<Mat> block, vector<Mat>& sim_patch, vector<int>& sim_num,
+	int i, int j, int bn_r, int bn_c, int area, int maxNum, int tao)
+{
+	int row_min = max(0, i - (area - 1) / 2);
+	int row_max = min(bn_r - 1, i + (area - 1) / 2);
+	int row_length = row_max - row_min + 1;
+
+	int col_min = max(0, j - (area - 1) / 2);
+	int col_max = min(bn_c - 1, j + (area - 1) / 2);
+	int col_length = col_max - col_min + 1;
+
+	const Mat relevence = block[i * bn_c + j];
+	Mat tmp;
+
+	float* distance = new float[row_length * col_length];//计算距离
+	int* idx = new int[row_length * col_length];//保存下标便于后续聚类计算
+	if (!distance) {
+		cout << "allocation failure\n";
+		system("pause");
+	}
+	for (int p = 0; p < row_length; p++)
+	{
+		for (int q = 0; q < col_length; q++)
+		{
+			tmp = block[(p + row_min) * bn_c + (q + col_min)];
+			distance[p * col_length + q] = cal_distance(relevence, tmp);
+			//cout << distance[p*col_length + q] << endl;
+			idx[p * col_length + q] = p * col_length + q;
+		}
+	}
+	float value; int l;
+	//直接排序算法，有待改进！
+	for (int k = 1; k < row_length * col_length; k++)
+	{
+		value = distance[k];
+		for (l = k - 1; value < distance[l] && l >= 0; --l)
+		{
+			distance[l + 1] = distance[l];
+			idx[l + 1] = idx[l];
+		}
+		distance[l + 1] = value;
+		idx[l + 1] = k;
+	}
+	int selectedNum = maxNum;
+	while (row_length * col_length < selectedNum)
+	{
+		selectedNum /= 2;//确保相似块的个数为2的幂
+	}
+	while (distance[selectedNum - 1] > tao)
+	{
+		selectedNum /= 2;
+	}
+	int Row, Col;
+	for (int k = 0; k < selectedNum; k++)
+	{
+		Row = row_min + idx[k] / col_length;
+		Col = col_min + idx[k] % col_length;
+		tmp = block[Row * bn_c + Col].clone();
+		sim_patch.push_back(tmp);
+		sim_num.push_back(Row * bn_c + Col);
+	}
+}
+
+float cal_distance(Mat a, Mat b)
+{
+	int sy = a.rows;
+	int sx = a.cols;
+	float sum = 0;
+	for (int i = 0; i < sy; i++)
+	{
+		const float* M1 = a.ptr<float>(i);
+		const float* M2 = b.ptr<float>(i);
+		for (int j = 0; j < sx; j++)
+		{
+			sum += (M1[j] - M2[j]) * (M1[j] - M2[j]);
+		}
+	}
+	return sum / (sy * sx);
+}
+
+void tran1d(vector<Mat>& input, int patchSize)
+{
+	int size = input.size();
+	int layer = log2(size);
+	float* data = new float[size];
+	for (int i = 0; i < patchSize; i++)
+	{
+		for (int j = 0; j < patchSize; j++)
+		{
+			for (int k = 0; k < size; k++)
+			{
+				data[k] = input[k].at<float>(i, j);
+				//cout << data[k] << endl;
+			}
+			wavedec(data, size);
+			for (int k = 0; k < size; k++)
+			{
+				input[k].at<float>(i, j) = data[k];
+			}
+		}
+	}
+	delete[] data;
 }
 
 int log2(const int N)
@@ -123,10 +334,8 @@ void wavedec(float* input, int length)
 void waverec(float* input, int length, int N)
 {
 	if (log2(length) > N) return;
-	
 	float* tmp = new float[length];
-	for (int i = 0; i < length; i++) 
-	{
+	for (int i = 0; i < length; i++) {
 		tmp[i] = input[i];
 	}
 	for (int k = 0; k < length / 2; k++)
@@ -134,96 +343,96 @@ void waverec(float* input, int length, int N)
 		input[2 * k] = (tmp[k] + tmp[k + length / 2]) / sqrt(2);
 		input[2 * k + 1] = (tmp[k] - tmp[k + length / 2]) / sqrt(2);
 	}
-	delete[] tmp;
+	delete tmp;
 	waverec(input, length * 2, N);
 }
 
-
-
-
-
-void tran1d(std::vector<cv::Mat>& block,int BlockSize)
+void DetectZero(vector<Mat>& input, float threshold)
 {
-	int size = block.size();
-	int layer = log2(size);
-	float* data = new float[size];
-	for (int i=0;i<BlockSize;i++)
+	for (int k = 0; k < input.size(); k++)
 	{
-		for (int j=0;j< BlockSize;j++)
-		{
-			for (int k = 0;k< size;k++)
+		for (int i = 0; i < input[k].rows; i++)
+			for (int j = 0; j < input[k].cols; j++)
 			{
-				data[k] = block[k].at<float>(i, j);
+				if (fabs(input[k].at<float>(i, j)) < threshold)
+				{
+					input[k].at<float>(i, j) = 0;
+				}
 			}
-			wavedec(data, size);
-			for (int k = 0; k < size; k++)
-			{	
-				//std::cout << "data: " << data[k] << std::endl;
-				block[k].at<float>(i, j) = data[k];
-			}
-		}
-	}
-	delete[] data;
-}
-
-void shrink(std::vector<cv::Mat>& block, float threshold)
-{
-	for (int row=0;row<block[0].rows;row++)
-	{
-		for (int col=0;col< block[0].cols;col++)
-		{
-			for (int num = 0; num <block.size(); num++)
-			{
-				block[num].at<float>(row, col) = fabs(block[num].at<float>(row, col)) > threshold ? block[num].at<float>(row, col) : 0;
-			}
-		}
 	}
 }
 
-void aggregation(vector<std::vector<cv::Mat>>& block, std::vector<cv::Point2d> blockLUPoint,Mat &numerator, Mat &denominator,
-				 float weight, int patchSize, Mat window)
+float calculate_weight_hd(const vector<Mat>input, int sigma)
 {
-	cv::Rect Rect;
-	for (int i = 0;i<block.size();i++)
-	{
-		for (int j =  0;j<block[0].size();j++)
-		{
-			Rect.x = blockLUPoint[i * block[0].size() + j].x;
-			Rect.y = blockLUPoint[i * block[0].size() + j].y;
-			Rect.width = patchSize;
-			Rect.height = patchSize;
-			numerator(Rect) += weight * (block[i][j].mul(window));
-			denominator(Rect) += denominator(Rect) + weight * window;
-		}
-	}
-}
-
-float calculate_weight_hd(vector<std::vector<cv::Mat>>& block, int sigma)
-{
-	int num{ 0 };
-	for (int i = 0; i < block.size(); i++)
-	{
-		for (int j = 0; j < block[0].size(); j++)
-		{
-			for (int row = 0;row<block[i][j].rows;row++)
+	int num = 0;
+	for (int k = 0; k < input.size(); k++)
+		for (int i = 0; i < input[k].rows; i++)
+			for (int j = 0; j < input[k].cols; j++)
 			{
-				for (int col = 0;col<block[i][j].cols;col++)
+				if (input[k].at<float>(i, j) != 0)
 				{
 					num++;
 				}
 			}
-		}
-	}
-	if (num==0)
+	if (num == 0)
 	{
 		return 1;
 	}
 	else
-	{
 		return 1.0 / (sigma * sigma * num);
+}
+
+float calculate_weight_wien(const vector<Mat>input, int sigma)
+{
+	float sum = 0;
+	for (int k = 0; k < input.size(); k++)
+		for (int i = 0; i < input[k].rows; i++)
+			for (int j = 0; j < input[k].cols; j++)
+			{
+				sum += (input[k].at<float>(i, j)) * (input[k].at<float>(i, j));
+			}
+	return 1.0 / (sigma * sigma * sum);
+}
+
+void Inver3Dtrans(vector<Mat>& input, int patchSize)
+{
+	int size = input.size();
+	int layer = log2(size);
+	float* data = new float[size];
+	for (int i = 0; i < patchSize; i++)
+		for (int j = 0; j < patchSize; j++)
+		{
+			for (int k = 0; k < size; k++)
+			{
+				data[k] = input[k].at<float>(i, j);
+			}
+			waverec(data, 2, layer);
+			for (int k = 0; k < size; k++)
+			{
+				input[k].at<float>(i, j) = data[k];
+			}
+		}
+	for (int k = 0; k < size; k++)
+	{
+		input[k] = input[k].clone();
+		idct(input[k], input[k]);
 	}
 }
 
+void aggregation(Mat& numerator, Mat& denominator, vector<int>idx_r, vector<int>idx_c,
+	const vector<Mat> input, float weight, int patchSize, Mat window)
+{
+	Rect rect;
+	for (int k = 0; k < input.size(); k++)
+	{
+		rect.x = idx_c[k];
+		rect.y = idx_r[k];
+		rect.height = patchSize;
+		rect.width = patchSize;
+		numerator(rect) = numerator(rect) + weight * (input[k].mul(window));
+		denominator(rect) = denominator(rect) + weight * window;
+	}
+}
 
 Mat gen_kaiser(int beta, int length)//How to do this?
 {
@@ -247,80 +456,21 @@ Mat gen_kaiser(int beta, int length)//How to do this?
 	}
 }
 
-void inv_tran_3d(vector<Mat>& input, int patchSize)
+void gen_wienFilter(vector<Mat>& input, int sigma)
 {
-	int size = input.size();
-	int layer = log2(size);
-	float* data = new float[size];
-	for (int i = 0; i < patchSize; i++)
+	Mat tmp;
+	Mat Sigma(input[0].size(), CV_32FC1, Scalar::all(sigma * sigma));
+	for (int k = 0; k < input.size(); k++)
 	{
-		for (int j = 0; j < patchSize; j++)
-		{
-			for (int k = 0; k < size; k++)
-			{
-				data[k] = input[k].at<float>(i, j);
-			}
-			waverec(data, 2, layer);
-			for (int k = 0; k < size; k++)
-			{
-				input[k].at<float>(i, j) = data[k];
-			}
-		}
+		tmp = input[k].mul(input[k]) + Sigma;
+		input[k] = input[k].mul(input[k]) / (tmp.clone());
 	}
-	for (int k = 0; k < size; k++)
-	{
-		cv::idct(input[k], input[k]);
-	}
-	//delete[] data;
 }
 
-
-
-
-
-int main()
+void wienFiltering(vector<Mat>& input, const vector<Mat>wien, int patchSize)
 {
-	cv::Mat pic = cv::imread("house.png", 0);
-	pic = addGaussianNoise(pic);
-	std::vector<cv::Point2d> blockLUPoint;
-
-	std::vector<std::vector<::Mat>> blockGroup = GetAllBlock(pic, BlockSize, stride, blockLUPoint);
-	
-	BlockDctTrans(blockGroup);
-
-	for (int i = 0;i<blockGroup.size();i++)
+	for (int k = 0; k < input.size(); k++)
 	{
-		for (int j = 0;j<blockGroup[0].size();j++)
-		{
-			std::multimap<float, cv::Mat> a  = Group(blockGroup, i, j, SearchWindowSize, BlockSize, stride);
-			std::vector<cv::Mat> GroupPic;
-			auto itor = a.begin();
-			for (int GroupNum = 0; GroupNum<a.size();GroupNum++)
-			{
-				GroupPic.emplace_back(itor->second);
-				itor++;
-			}
-			tran1d(GroupPic, BlockSize);
-			shrink(GroupPic, Threshold);
-			inv_tran_3d(GroupPic, BlockSize);
-			//aggregation(GroupPic,blockLUPoint)
-		}
+		input[k] = input[k].mul(wien[k]);
 	}
-	
-
-	Mat denominator_hd(pic.size(), CV_32FC1, Scalar::all(0));
-	Mat numerator_hd(pic.size(), CV_32FC1, Scalar::all(0));
-
-	float weight = calculate_weight_hd(blockGroup, sigma);
-	int beta = 2;
-	cv::Mat kaiser = gen_kaiser(beta, BlockSize);
-	aggregation(blockGroup, blockLUPoint, numerator_hd, denominator_hd, weight, BlockSize,kaiser);
-	cv::Mat src = pic.clone();
-	int Height = pic.rows;
-	int Width = pic.cols;
-	cv::Mat basic = numerator_hd / denominator_hd;
-	cv::imshow("basic", basic);
-	std::vector<std::vector<BlockMessage>> Block;
-	return 0;
 }
-
