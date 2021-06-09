@@ -11,3 +11,5 @@
 
 5、FAST_CornerDetection：FAST特征点检测
 
+6、SobelOperator: Sobel边缘检测算子原理实现
+
